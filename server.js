@@ -3,12 +3,23 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 require('dotenv').config();
+const cors = require('cors'); // <--- NEW: Import the cors middleware
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// NEW: Configure CORS to allow requests from your local testing environment
+// and your future live website domain.
+// IMPORTANT: Replace 'https://www.your-existing-website.com' with your actual website's domain
+// when you deploy your frontend. For now, 'http://localhost:8080' is for local testing.
+app.use(cors({
+  origin: ['http://localhost:8080', 'https://www.your-existing-website.com']
+  // You can add more origins to this array if your website is hosted on multiple domains/subdomains.
+  // For production, it's best to be as specific as possible rather than using '*'
+}));
+
 app.use(bodyParser.json());
-app.use(express.static('public')); // Serve frontend files from 'public' folder
+// REMOVED: app.use(express.static('public')); // <--- This line is removed. The backend no longer serves static frontend files.
 
 const ASSISTANT_ID = 'asst_IqchvEeXk7VtYNTkc4jMtNFz';
 
@@ -18,7 +29,7 @@ const userThreads = {};
 // Endpoint to handle chat requests from frontend
 app.post('/chat', async (req, res) => {
     try {
-        const { message, userId } = req.body; // Assuming you'll send a userId from the frontend
+        const { message, userId } = req.body; // userId is sent from the frontend
 
         if (!userId) {
             return res.status(400).json({ error: 'userId is required' });
@@ -76,28 +87,29 @@ app.post('/chat', async (req, res) => {
             });
             runStatus = statusResponse.data.status;
             console.log(`Run status: ${runStatus}`);
-        } while (runStatus !== 'completed' && runStatus !== 'failed' && runStatus !== 'cancelled');
+        } while (runStatus !== 'completed' && runStatus !== 'failed' && runStatus !== 'cancelled' && runStatus !== 'expired'); // <--- NEW: Added 'expired' status
 
         if (runStatus === 'completed') {
             // 5. Retrieve messages from the thread
-            const messagesResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+            // We fetch messages ordered by 'created_at' in descending order to easily get the latest.
+            const messagesResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/messages?order=desc`, {
                 headers: {
                     'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
                     'OpenAI-Beta': 'assistants=v2'
                 }
             });
 
-            // Find the last assistant message
+            // Find the last assistant message that was part of this specific run
+            // This is important to ensure we're getting the response from the run we just initiated.
             const assistantMessages = messagesResponse.data.data.filter(
-                msg => msg.role === 'assistant'
-            ).sort((a, b) => b.created_at - a.created_at); // Sort by created_at descending
+                msg => msg.role === 'assistant' && msg.run_id === runId
+            );
 
             let reply = 'Sorry, no reply received from the assistant.';
             if (assistantMessages.length > 0) {
-                // Assuming the last message from the assistant contains the relevant response
-                const lastAssistantMessage = assistantMessages[0];
+                const lastAssistantMessage = assistantMessages[0]; // Already sorted by desc created_at
                 if (lastAssistantMessage.content && lastAssistantMessage.content.length > 0) {
-                    // Check if content is an array and has text
+                    // Find the first content block of type 'text'
                     const textContent = lastAssistantMessage.content.find(c => c.type === 'text');
                     if (textContent && textContent.text) {
                         reply = textContent.text.value;
@@ -106,7 +118,7 @@ app.post('/chat', async (req, res) => {
             }
             res.json({ reply, threadId });
         } else {
-            res.status(500).json({ error: `Assistant run failed with status: ${runStatus}` });
+            res.status(500).json({ error: `Assistant run failed or incomplete with status: ${runStatus}` });
         }
 
     } catch (error) {
@@ -117,5 +129,5 @@ app.post('/chat', async (req, res) => {
 
 // Start server
 app.listen(port, () => {
-    console.log(`Chatbot server running at http://localhost:${port}`);
+    console.log(`Chatbot API server running at http://localhost:${port}`);
 });

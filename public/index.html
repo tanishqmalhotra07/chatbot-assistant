@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My AI Chatbot</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #chatbox { max-width: 600px; margin: auto; border: 1px solid #ccc; min-height: 300px; padding: 10px; overflow-y: scroll; }
+    .bubble { margin: 10px 0; padding: 10px; border-radius: 10px; word-wrap: break-word; } /* Added word-wrap */
+    .user { background: #d1e7dd; text-align: right; margin-left: 20%; } /* Added margin for better alignment */
+    .bot { background: #f8d7da; text-align: left; margin-right: 20%; } /* Added margin for better alignment */
+    .input-container { display: flex; max-width: 600px; margin: 10px auto; }
+    #userInput { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+    button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px; }
+    button:hover { background-color: #0056b3; }
+  </style>
+</head>
+<body>
+  <div id="chatbox"></div>
+  <div class="input-container">
+    <input type="text" id="userInput" placeholder="Type your message...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    // Store userId in localStorage to persist across sessions
+    let userId = localStorage.getItem('chatUserId');
+    if (!userId) {
+      // Generate a simple unique ID if one doesn't exist
+      userId = 'user_' + Date.now() + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('chatUserId', userId);
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('userInput');
+      const chatbox = document.getElementById('chatbox');
+      const message = input.value.trim(); // Trim whitespace
+      if (!message) return;
+
+      // Show user message
+      const userBubble = document.createElement('div');
+      userBubble.className = 'bubble user';
+      userBubble.innerText = message;
+      chatbox.appendChild(userBubble);
+      input.value = '';
+
+      // Scroll to bottom immediately after user message
+      chatbox.scrollTop = chatbox.scrollHeight;
+
+      // Show a "typing..." indicator
+      const typingIndicator = document.createElement('div');
+      typingIndicator.className = 'bubble bot';
+      typingIndicator.id = 'typingIndicator';
+      typingIndicator.innerText = 'Assistant is typing...';
+      chatbox.appendChild(typingIndicator);
+      chatbox.scrollTop = chatbox.scrollHeight; // Scroll to show indicator
+
+
+      try {
+        // Send to server, including userId
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, userId }) // Send userId here
+        });
+        const data = await res.json();
+
+        // Remove typing indicator
+        chatbox.removeChild(typingIndicator);
+
+        if (data.error) {
+            console.error('Bot error:', data.error);
+            const errorBubble = document.createElement('div');
+            errorBubble.className = 'bubble bot';
+            errorBubble.innerText = 'Error: ' + data.error;
+            chatbox.appendChild(errorBubble);
+        } else {
+            // Show bot reply
+            const botBubble = document.createElement('div');
+            botBubble.className = 'bubble bot';
+            botBubble.innerText = data.reply; // Access 'reply' directly
+            chatbox.appendChild(botBubble);
+        }
+
+      } catch (error) {
+          console.error('Fetch error:', error);
+          // Remove typing indicator in case of network error
+          if (document.getElementById('typingIndicator')) {
+              chatbox.removeChild(document.getElementById('typingIndicator'));
+          }
+          const errorBubble = document.createElement('div');
+          errorBubble.className = 'bubble bot';
+          errorBubble.innerText = 'Network error or server issue. Please try again.';
+          chatbox.appendChild(errorBubble);
+      } finally {
+          // Scroll to bottom after bot reply or error
+          chatbox.scrollTop = chatbox.scrollHeight;
+      }
+    }
+
+    // Allow sending message by pressing Enter key
+    document.getElementById('userInput').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
